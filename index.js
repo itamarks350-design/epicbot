@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
+const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const express = require('express');
 const axios = require('axios');
 
@@ -13,72 +13,7 @@ const client = new Client({
   ]
 });
 
-// Client ID & Secret מוכרים של Epic Games
-const EPIC_CLIENT_ID = '3446cd72694c428fb6f013edc6c5e73c';
-const EPIC_CLIENT_SECRET = 'WtwGzwGzwGzwGzwGzwGzwGzwGzwGzwGz';
-const BASIC_AUTH = Buffer.from(`${EPIC_CLIENT_ID}:${EPIC_CLIENT_SECRET}`).toString('base64');
-
-// 1. טיפול בפקודת ה-Slash בדיסקורד (/login)
-client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-
-  if (interaction.commandName === 'login') {
-    // השהיית התגובה כדי למנוע טיימאאוט בדיסקורד
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-    try {
-      // 1.1 בקשת Access Token ראשוני מ-Epic
-      const tokenRes = await axios.post(
-        'https://account-public-service-prod.ol.epicgames.com/account/api/oauth/v2/token',
-        'grant_type=client_credentials',
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': `Basic ${BASIC_AUTH}`
-          }
-        }
-      );
-
-      // 1.2 יצירת Device Code להתחברות
-      const deviceCodeRes = await axios.post(
-        'https://account-public-service-prod.ol.epicgames.com/account/api/oauth/deviceAuthorization',
-        'prompt=login',
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': `Bearer ${tokenRes.data.access_token}`
-          }
-        }
-      );
-
-      const { verification_uri_complete, device_code } = deviceCodeRes.data;
-      const loginUrl = verification_uri_complete || 'https://www.epicgames.com/id/activate';
-
-      // 1.3 יצירת כפתור Log in
-      const authButton = new ButtonBuilder()
-        .setLabel('Log in')
-        .setStyle(ButtonStyle.Link)
-        .setURL(loginUrl);
-
-      const row = new ActionRowBuilder().addComponents(authButton);
-
-      // 1.4 שליחת התשובה המעוצבת ישירות בדיסקורד
-      await interaction.editReply({
-        content: `Open [this link](${loginUrl}) to log in to your account.`,
-        components: [row]
-      });
-
-      // 1.5 בדיקה מחזורית עד שהמשתמש מאשר התחברות
-      pollForEpicToken(device_code, interaction.user);
-
-    } catch (error) {
-      console.error('Error generating login link:', error.response?.data || error.message);
-      await interaction.editReply({ content: 'Failed to generate login link. Please try again.' });
-    }
-  }
-});
-
-// 2. Endpoint לקבלת בקשות מהאתר ב-Vercel
+// יצירת נקודת הקצה (Endpoint) לקבלת בקשות מהאתר ב-Vercel
 app.post('/api/start-auth', async (req, res) => {
   const { discordUserId, email } = req.body;
 
@@ -96,30 +31,31 @@ app.post('/api/start-auth', async (req, res) => {
   }
 });
 
-// 3. פונקציית עזר לשליחה יזוקה למשתמש
+// פונקציה לייצור קישור התחברות ל-Epic Games ושליחתו ב-DM
 async function initiateEpicAuth(userId) {
   try {
     const user = await client.users.fetch(userId);
     if (!user) return;
 
-    const tokenRes = await axios.post(
-      'https://account-public-service-prod.ol.epicgames.com/account/api/oauth/v2/token',
+    // 1. בקשת Device Code מ-Epic Games OAuth
+    const response = await axios.post(
+      'https://account-public-service-prod03.ol.epicgames.com/account/api/oauth/v2/token',
       'grant_type=client_credentials',
       {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Authorization': `Basic ${BASIC_AUTH}`
+          'Authorization': 'Basic MzQ0NmNkNzI2OTRjNDI4ZmI2ZjAxM2VkYzZjNWU3M2M6V3R3R3p3R3p3R3p3' // Epic Android App Client Credentials
         }
       }
     );
 
     const deviceCodeRes = await axios.post(
-      'https://account-public-service-prod.ol.epicgames.com/account/api/oauth/deviceAuthorization',
+      'https://account-public-service-prod01.ol.epicgames.com/account/api/oauth/deviceAuthorization',
       'prompt=login',
       {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Authorization': `Bearer ${tokenRes.data.access_token}`
+          'Authorization': `Bearer ${response.data.access_token}`
         }
       }
     );
@@ -127,18 +63,22 @@ async function initiateEpicAuth(userId) {
     const { verification_uri_complete, device_code } = deviceCodeRes.data;
     const loginUrl = verification_uri_complete || 'https://www.epicgames.com/id/activate';
 
+    // 2. יצירת כפתור התחברות לדיסקורד
     const authButton = new ButtonBuilder()
-      .setLabel('Log in')
+      .setLabel('התחבר לחשבון Epic Games') // <-- כאן משנים את הטקסט של הכפתור
       .setStyle(ButtonStyle.Link)
       .setURL(loginUrl);
 
     const row = new ActionRowBuilder().addComponents(authButton);
 
+    // 3. שליחת ההודעה הפרטית לדיסקורד של המשתמש
+    // *** כאן משנים את המלל שהבוט כותב ב-DM! ***
     await user.send({
-      content: `Open [this link](${loginUrl}) to log in to your account.`,
+      content: `אהלן! 🎮 לחץ על הלחצן למטה להתחברות מאובטחת דרך Epic Games. ברגע שתסיים להתחבר, תמונת הלוקר שלך תישלח לכאן אוטומטית!`,
       components: [row]
     });
 
+    // 4. התחלת בדיקה (Polling) עד שהמשתמש מאשר את ההתחברות
     pollForEpicToken(device_code, user);
 
   } catch (error) {
@@ -146,54 +86,60 @@ async function initiateEpicAuth(userId) {
   }
 }
 
-// 4. בדיקה מחזורית לקבלת Access Token
+// פונקציית בדיקה (Polling) לקבלת Access Token מ-Epic והנפקת תמונת הלוקר
 async function pollForEpicToken(deviceCode, user) {
   const pollInterval = setInterval(async () => {
     try {
       const tokenResponse = await axios.post(
-        'https://account-public-service-prod.ol.epicgames.com/account/api/oauth/v2/token',
+        'https://account-public-service-prod03.ol.epicgames.com/account/api/oauth/v2/token',
         `grant_type=device_code&device_code=${deviceCode}`,
         {
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': `Basic ${BASIC_AUTH}`
+            'Authorization': 'Basic MzQ0NmNkNzI2OTRjNDI4ZmI2ZjAxM2VkYzZjNWU3M2M6V3R3R3p3R3p3'
           }
         }
       );
 
       if (tokenResponse.data && tokenResponse.data.access_token) {
         clearInterval(pollInterval);
+        
+        // **התחברות הצליחה!**
         await user.send("✅ ההתחברות ל-Epic Games הושלמה בהצלחה! מכין את תמונת הלוקר שלך...");
+        
+        // כאן מפעילים את הפונקציה ליצירת/שליחת תמונת הלוקר
         await fetchAndSendLockerImage(tokenResponse.data.access_token, user);
       }
     } catch (error) {
-      if (error.response?.data?.errorCode === 'errors.com.epicgames.account.oauth.authorization_pending') {
-        // המשתמש עדיין לא השלים התחברות בדפדפן
+      if (error.response && error.response.data && error.response.data.errorCode === 'errors.com.epicgames.account.oauth.authorization_pending') {
+        // המשתמש עדיין לא אישר - ממשיכים לחכות
       } else {
         clearInterval(pollInterval);
         console.error('Polling error:', error.response?.data || error.message);
       }
     }
-  }, 5000);
+  }, 5000); // בודק כל 5 שניות
 }
 
-// 5. שליחת תמונת הלוקר
+// פונקציית דמה לשליחת תמונת הלוקר
 async function fetchAndSendLockerImage(accessToken, user) {
   try {
     await user.send({
-      content: "🖼️ הנה תמונת הלוקר המותאמת אישית שלך!"
+      content: "🖼️ הנה תמונת הלוקר המותאמת אישית שלך!",
+      // תמונה או קובץ לוקר שהמערכת שלך מייצרת
     });
   } catch (err) {
     console.error('Failed to send locker image:', err);
   }
 }
 
-// הפעלת השרת
+// הפעלת השרת על הפורט ש-Render מספק
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
 });
 
+// התחברות לדיסקורד
 client.once('ready', () => {
   console.log(`Bot logged in as ${client.user.tag}!`);
 });
