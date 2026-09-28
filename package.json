@@ -4,16 +4,14 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
-    "express": "^4.19.2",
-    "discord.js": "^14.27.0",
-    "axios": "^1.6.0"
+    "axios": "^1.7.7",
+    "discord.js": "^14.16.2",
+    "express": "^4.21.0"
   }
 }
