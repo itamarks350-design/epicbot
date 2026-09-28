@@ -7,8 +7,7 @@ const {
     REST, 
     Routes, 
     InteractionContextType, 
-    ApplicationIntegrationType,
-    MessageFlags
+    ApplicationIntegrationType
 } = require('discord.js');
 const http = require('http');
 
@@ -71,10 +70,10 @@ client.on('interactionCreate', async (interaction) => {
 
         const row = new ActionRowBuilder().addComponents(loginButton);
 
+        // הסרנו את ה-flags כדי שההודעה תהיה ציבורית לכל הערוץ
         await interaction.reply({
             content: `Open [this link](${WEBSITE_URL}) to log in to your account.`,
-            components: [row],
-            flags: MessageFlags.Ephemeral
+            components: [row]
         });
     }
 });
