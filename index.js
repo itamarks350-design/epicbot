@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 const express = require('express');
 const axios = require('axios');
 
@@ -13,35 +13,40 @@ const client = new Client({
   ]
 });
 
+// Client ID & Secret מוכרים של Epic Games
+const EPIC_CLIENT_ID = '3446cd72694c428fb6f013edc6c5e73c';
+const EPIC_CLIENT_SECRET = 'WtwGzwGzwGzwGzwGzwGzwGzwGzwGzwGz';
+const BASIC_AUTH = Buffer.from(`${EPIC_CLIENT_ID}:${EPIC_CLIENT_SECRET}`).toString('base64');
+
 // 1. טיפול בפקודת ה-Slash בדיסקורד (/login)
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'login') {
-    // השהיית התגובה כדי לאפשר לשרת לפנות ל-Epic Games
-    await interaction.deferReply({ ephemeral: true });
+    // השהיית התגובה כדי למנוע טיימאאוט בדיסקורד
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     try {
-      // 1.1 בקשת Client Credentials מ-Epic Games
-      const response = await axios.post(
-        'https://account-public-service-prod03.ol.epicgames.com/account/api/oauth/v2/token',
+      // 1.1 בקשת Access Token ראשוני מ-Epic
+      const tokenRes = await axios.post(
+        'https://account-public-service-prod.ol.epicgames.com/account/api/oauth/v2/token',
         'grant_type=client_credentials',
         {
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': 'Basic MzQ0NmNkNzI2OTRjNDI4ZmI2ZjAxM2VkYzZjNWU3M2M6V3R3R3p3R3p3R3p3'
+            'Authorization': `Basic ${BASIC_AUTH}`
           }
         }
       );
 
-      // 1.2 יצירת Device Code
+      // 1.2 יצירת Device Code להתחברות
       const deviceCodeRes = await axios.post(
-        'https://account-public-service-prod01.ol.epicgames.com/account/api/oauth/deviceAuthorization',
+        'https://account-public-service-prod.ol.epicgames.com/account/api/oauth/deviceAuthorization',
         'prompt=login',
         {
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': `Bearer ${response.data.access_token}`
+            'Authorization': `Bearer ${tokenRes.data.access_token}`
           }
         }
       );
@@ -57,13 +62,13 @@ client.on('interactionCreate', async (interaction) => {
 
       const row = new ActionRowBuilder().addComponents(authButton);
 
-      // 1.4 שליחת ההודעה המדויקת בערוץ
+      // 1.4 שליחת התשובה המעוצבת ישירות בדיסקורד
       await interaction.editReply({
         content: `Open [this link](${loginUrl}) to log in to your account.`,
         components: [row]
       });
 
-      // 1.5 הפעלת בדיקה רציפה (Polling) עד התחברות
+      // 1.5 בדיקה מחזורית עד שהמשתמש מאשר התחברות
       pollForEpicToken(device_code, interaction.user);
 
     } catch (error) {
@@ -73,7 +78,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-// 2. נקודת קצה (Endpoint) לקבלת בקשות מהאתר ב-Vercel
+// 2. Endpoint לקבלת בקשות מהאתר ב-Vercel
 app.post('/api/start-auth', async (req, res) => {
   const { discordUserId, email } = req.body;
 
@@ -91,30 +96,30 @@ app.post('/api/start-auth', async (req, res) => {
   }
 });
 
-// 3. פונקציה לייצור הקישור והודעה (לשימוש במידת הצורך מ-API)
+// 3. פונקציית עזר לשליחה יזוקה למשתמש
 async function initiateEpicAuth(userId) {
   try {
     const user = await client.users.fetch(userId);
     if (!user) return;
 
-    const response = await axios.post(
-      'https://account-public-service-prod03.ol.epicgames.com/account/api/oauth/v2/token',
+    const tokenRes = await axios.post(
+      'https://account-public-service-prod.ol.epicgames.com/account/api/oauth/v2/token',
       'grant_type=client_credentials',
       {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Authorization': 'Basic MzQ0NmNkNzI2OTRjNDI4ZmI2ZjAxM2VkYzZjNWU3M2M6V3R3R3p3R3p3'
+          'Authorization': `Basic ${BASIC_AUTH}`
         }
       }
     );
 
     const deviceCodeRes = await axios.post(
-      'https://account-public-service-prod01.ol.epicgames.com/account/api/oauth/deviceAuthorization',
+      'https://account-public-service-prod.ol.epicgames.com/account/api/oauth/deviceAuthorization',
       'prompt=login',
       {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Authorization': `Bearer ${response.data.access_token}`
+          'Authorization': `Bearer ${tokenRes.data.access_token}`
         }
       }
     );
@@ -141,17 +146,17 @@ async function initiateEpicAuth(userId) {
   }
 }
 
-// 4. בדיקת Polling מול Epic Games
+// 4. בדיקה מחזורית לקבלת Access Token
 async function pollForEpicToken(deviceCode, user) {
   const pollInterval = setInterval(async () => {
     try {
       const tokenResponse = await axios.post(
-        'https://account-public-service-prod03.ol.epicgames.com/account/api/oauth/v2/token',
+        'https://account-public-service-prod.ol.epicgames.com/account/api/oauth/v2/token',
         `grant_type=device_code&device_code=${deviceCode}`,
         {
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': 'Basic MzQ0NmNkNzI2OTRjNDI4ZmI2ZjAxM2VkYzZjNWU3M2M6V3R3R3p3R3p3'
+            'Authorization': `Basic ${BASIC_AUTH}`
           }
         }
       );
@@ -162,8 +167,8 @@ async function pollForEpicToken(deviceCode, user) {
         await fetchAndSendLockerImage(tokenResponse.data.access_token, user);
       }
     } catch (error) {
-      if (error.response && error.response.data && error.response.data.errorCode === 'errors.com.epicgames.account.oauth.authorization_pending') {
-        // ממתין לאישור הלקוח
+      if (error.response?.data?.errorCode === 'errors.com.epicgames.account.oauth.authorization_pending') {
+        // המשתמש עדיין לא השלים התחברות בדפדפן
       } else {
         clearInterval(pollInterval);
         console.error('Polling error:', error.response?.data || error.message);
@@ -172,7 +177,7 @@ async function pollForEpicToken(deviceCode, user) {
   }, 5000);
 }
 
-// 5. שליחת תמונת לוקר
+// 5. שליחת תמונת הלוקר
 async function fetchAndSendLockerImage(accessToken, user) {
   try {
     await user.send({
